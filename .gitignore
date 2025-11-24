@@ -1,0 +1,6 @@
+# on n'envoie pas le fichier param.yml
+param.yml
+__pycache__
+.DS_Store
+.venv
+generators/__pycache__
