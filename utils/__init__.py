@@ -20,6 +20,9 @@ from .get_random_holiday_type import get_random_holiday_type
 from .get_random_project_id import get_random_project_id
 from .get_random_user_id import get_random_user_id
 
+#rand
+from .rand_0_or_1_to_max import rand_0_or_1_to_max
+
 
 # all
 
@@ -35,5 +38,6 @@ __all__ = [
     "get_random_holiday_type",
     "get_random_project_id",
     "get_random_user_id",
-    "get_created_id"
+    "get_created_id",
+    "rand_0_or_1_to_max"
 ]
