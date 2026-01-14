@@ -38,7 +38,6 @@ urlDictionary = urlBase + 'setup/dictionary/'
 
 # Tiers
 nbNewUser=config['elements']['new_user']
-nbNewGroup=config['elements']['new_user_group']
 nbNewClient=config['elements']['new_client']
 
 # Structures

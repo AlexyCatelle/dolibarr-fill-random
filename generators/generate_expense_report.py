@@ -1,216 +1,260 @@
 import random
 import requests
-import calendar
-from datetime import datetime, timedelta, date
+import datetime
 import sys, os
-
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from dolibarr_api import *
 from utils import *
 
-
-def generate_expense_report(dateCreate, testing=False):
+def generate_expense_report( dateCreate, testing = False):
     url = urlBase + "expensereports"
-    urlConf = urlBase + "setup/conf/EXPENSEREPORT_PREFILL_DATES_WITH_CURRENT_MONTH"
-
-
-    # CONFIG : PREFILL MONTHLY
-
-    try:
-        r = requests.get(urlConf, headers=headers)
-
-        if r.status_code != 200:
-            configPrefillActived = "0"
-        else:
-            raw = r.text.strip()
-            configPrefillActived = raw.strip('"').strip()
-
-        if testing:
-            print("Config monthly raw:", repr(r.text))
-            print("Config monthly parsed :", configPrefillActived)
-
-    except Exception as e:
-        print("Erreur récupération config monthly :", e)
-        configPrefillActived = "0"
-
-
-    # DATES NOTE DE FRAIS
-
-    if configPrefillActived == "1":
-        dateStart = dateCreate.replace(day=1)
-        last_day = calendar.monthrange(dateCreate.year, dateCreate.month)[1]
-        dateEnd = dateCreate.replace(day=last_day)
-
-        if testing:
-            print("Monthly ACTIVÉ")
-    else:
-        dateStart = fake.date_between(
-            start_date=dateCreate,
-            end_date=dateCreate + timedelta(days=15)
-        )
-        dateEnd = fake.date_between(
-            start_date=dateStart,
-            end_date=dateStart + timedelta(days=30)
-        )
-
-        if testing:
-            print("Monthly DÉSACTIVÉ (random)")
-
-    if testing:
-        print("dateStart :", dateStart)
-        print("dateEnd   :", dateEnd)
-
-
-    # UTILISATEUR
+    dateStart = fake.date_between(start_date=dateCreate, end_date = dateCreate + timedelta(days = 15))
+    dateEnd = fake.date_between(start_date=dateStart, end_date = dateStart + timedelta(days = 30))
 
     user = get_random_user(fill_users())
-    userID = user["id"]
-    validatorID = user["fk_user"]
+    userID = user['id']
+    if testing : 
+        print("userID : " , userID)
+    validatorID = user['fk_user'] #par défaut user connecté
+    if testing :
+        print("validatorID : " , validatorID)
 
-    if testing:
-        print("userID :", userID)
-        print("validatorID :", validatorID)
-
-
-    # CRÉATION NOTE DE FRAIS (BROUILLON)
-
+    # Création de la note de frais par défaut en brouillon
     data = {
-        "fk_user_author": userID,
-        "date_debut": dateStart.strftime("%Y-%m-%d"),
-        "date_fin": dateEnd.strftime("%Y-%m-%d"),
+        "fk_user_author": userID, # par défaut on met l'admin
+        "date_debut": dateStart.strftime('%Y-%m-%d'),
+        "date_fin": dateEnd.strftime('%Y-%m-%d'),
         "note_public": fake.text(max_nb_chars=200),
         "note_private": fake.text(max_nb_chars=200),
         "fk_user_validator": validatorID,
     }
 
-    r = requests.post(url, headers=headers, json=data)
-    if r.status_code != 200:
-        print("Erreur création note de frais", r.status_code)
-        print(r.text)
-        return None
+    try:
+        r = requests.post(url, headers=headers, json=data)
+        if r.status_code != 200:
+            print('Erreur lors de la création du note de frais', r.status_code)
+            print (r.text)
+            return None
+        else:
+            expenseReportID = r.text
+            urlReport = url + "/" + str(expenseReportID)
+            if testing :
+                print("Note de frais créée avec l'ID : ", expenseReportID)
 
-    expenseReportID = r.text
-    urlReport = f"{url}/{expenseReportID}"
-
-    if testing:
-        print("Note de frais créée ID :", expenseReportID)
+    except Exception as e:
+        print("Erreur lors de la création du note de frais :", e)
 
 
-    # LIGNES DE FRAIS
 
     projectsList = get_projects_of_userID(userID)
 
-    maxLines = max(1, nbExpenseReportLineMax)
-    nbLines = random.randint(1, maxLines)
+    if nbExpenseReportLineMax < 1 :
+        nbLines = 1
+    else :
+        nbLines = random.randint(1, nbExpenseReportLineMax)
 
-    r = requests.get(urlDictionary + "vat?actibr=1&fk_country=-1", headers=headers)
+    # recupére les taux de taxes de France par défaut
+    r = requests.get(urlDictionary + 'vat?actibr=1&fk_country=-1', headers = headers)
+    if r.status_code != 200:
+        print('erreur lors de la récupération des taux de taxes.')
+    
     vatrateList = r.json()
 
-    r = requests.get(urlDictionary + "expensereport_types?active=1", headers=headers)
+    # récupére la liste des types
+
+    r = requests.get(urlDictionary + 'expensereport_types?active=1', headers = headers)
+        
+    if r.status_code != 200:
+        print('erreur lors de la récupération des types de notes de frais.')
+    
     typefeesList = r.json()
 
     # Ajout des lignes de frais
-    urlAddLine = urlReport + "/line"
+    urlAddLine = urlReport + "/lines"
 
-        typefee = random.choice(typefeesList)
-        typefeeID = typefee["id"]
-        typefeeCode = typefee["code"]
-        vatrate = random.choice(vatrateList)["taux"]
+    for i in range (nbLines) :
 
+        if not projectsList:
+            fkProject = 'null'
+    
+        elif len(projectsList) > 1 :
+            fkProject = projectsList[random.randint(0, len(projectsList)-1)]['element_id']
+    
+        elif len(projectsList) == 1:
+            fkProject = projectsList[0]['element_id']
+
+        try:
+            typefeeID = typefeesList[random.randint(0, len(typefeesList)-1)]['id']
+            if testing:
+                print('id type de frais :', typefeeID)
+        except:
+            print('erreur lors de la récupération de l id du type de frais.')
         
-        qty, value_unit = get_realistic_qty_price(typefeeCode)
-
-        if testing:
-            print(f"Type frais {typefeeCode} → qty = {qty}, value_unit = {value_unit} €")
+        try:
+            vatrate = vatrateList[random.randint(0, len(vatrateList)-1)]['taux']
+            if testing:
+                print('taux taxe :', vatrate)
+        except:
+            print('erreur lors du choix du taux de taxe.')
 
         dataLine = {
             "comments": fake.text(max_nb_chars=100),
-            "fk_project": fkProject,
-            "qty": qty,
-            "value_unit": value_unit,
+            "fk_project" : fkProject,
+            "qty": random.randint(1,10),
+            "value_unit": random.randint(10,200),
             "fk_c_type_fees": typefeeID,
-            "vatrate": vatrate,
-            "date": fake.date_between_dates(dateStart, dateEnd).strftime("%Y-%m-%d"),
+            "vatrate" : vatrate,
+            "date": fake.date_between_dates(dateStart,dateEnd).strftime('%Y-%m-%d'),
         }
+    
+        r = requests.post(urlAddLine, headers=headers, json = dataLine)
 
-        r = requests.post(urlReport + "/line", headers=headers, json=dataLine)
-        if testing and r.status_code == 200:
-            print("Ligne de frais ajoutée")
+        if r.status_code != 200 :
+            if testing :  
+                print('Erreur lors de la création de la ligne de frais', r.status_code)
+                print (r.text)
+        else :
+            if testing:
+                print('création de la ligne de frais.')
+
+    status = random.choice(['brouillon','validate', 'approve', 'deny', 'cancel', 'paid'])
 
     
-    # STATUT
-
-    status = random.choice(["brouillon", "validate", "approve", "deny", "cancel", "paid"])
-
     if testing:
-        print("Status initial :", status)
+        #status = 'cancel' # 'paid'  'approve'   pour test uniquement
+        print("status choisi : " , status)
 
-    if dateEnd > datetime.today().date():
+    # si date de fin pas atteinte, obligatoirement en brouillon
 
-        status = "brouillon"
-
-
-    if status != "brouillon":
+    if dateEnd > datetime.now().date():
+        status = 'brouillon'
+                
+    # validation de la note de frais si elle n'est pas en brouillon
+    
+    if status != 'brouillon' :
 
         r = requests.post(urlReport + "/validate", headers=headers)
-        if r.status_code == 200 and testing:
-            print("Note validée")
+        if r.status_code != 200 :
+            if testing :  
+                print('Erreur lors de la validation de la note de frais', r.status_code)
+                print (r.text)
+        else :
+            if testing:
+                print('note de frais validée.')
 
-        if status in ("approve", "paid"):
-            r = requests.post(urlReport + "/approve", headers=headers)
-            if r.status_code == 200 and testing:
-                print("Note approuvée")
+            # probleme API
+            dateValidate = fake.date_between_dates(date_start= dateEnd, date_end= dateEnd + timedelta(days=7))
+            dataValidate = {
+                'fk_user_valid': validatorID,
+                'date_valid': dateCreate.strftime('%Y-%m-%d'),
+                'user_create': userID
+                }
+            
+            r = requests.put(urlReport, headers=headers, json = dataValidate)
 
-        if status == "deny":
-            r = requests.post(
-                urlReport + "/deny",
-                headers=headers,
-                json={"details": fake.sentence(), "notrigger": 0},
-            )
-            if r.status_code == 200 and testing:
-                print("Note refusée")
+        # modification user_validate et date_validate
 
-        if status == "cancel":
-            r = requests.post(
-                urlReport + "/cancel",
-                headers=headers,
-                json={"detail": fake.text()},
-            )
-            if r.status_code == 200 and testing:
-                print("Note annulée")
+        # refus de la note de frais
+        if status == 'deny' :
+            data = {
+                "details": "Raison du refus : " + fake.sentence(nb_words=6),
+            }
+            r = requests.post(urlReport + "/" + str(status), headers=headers, json=data)
 
+            if r.status_code != 200 :
+                if testing :  
+                    print('Erreur lors du changement de statut de la note de frais en :', status, r.status_code)
+                    print (r.text)
+            else :
+                if testing:
+                    print('note de frais passée au statut : ' , status)
 
-    # PAIEMENT
+                # probleme API
+                dataDeny = {
+                    'date_refuse': dateCreate.strftime('%Y-%m-%d'),
+                    'fk_user_refuse': validatorID
+                }
 
-    """    if status == "paid":
-        r = requests.get(urlDictionary + "payment_types?active=1", headers=headers)
+                r = requests.put(urlReport, headers=headers, json=dataDeny)
+
+                if r.status_code != 200 : 
+                    if testing:
+                        print('Erreur lors de la mise à jours du refus.')
+                        print(r.text)
+                
+                if testing:
+                    print('data refus update avec succés.')
+
+            
+        # approbation de la note de frais
+        if status == 'approve' or 'paid' :
+            r = requests.post(urlReport + "/approve" , headers=headers)
+            if r.status_code != 200 :
+                if testing :  
+                    print('Erreur lors du changement de statut de la note de frais en :', status, r.status_code)
+                    print (r.text)
+            else :
+                if testing:
+                    print('note de frais passée au statut : ' , status)
+        
+        #annulation de la note de frais
+        if status == 'cancel' : 
+            data_cancel ={
+                'detail': fake.text(max_nb_chars=200)
+            }
+            r = requests.post(urlReport + "/" + str(status), headers=headers, json = data_cancel)
+            if r.status_code != 200 :
+                if testing :  
+                    print('Erreur lors du changement de statut de la note de frais en :', status, r.status_code)
+                    print (r.text)
+            else :
+                if testing:
+                    print('note de frais passée au statut : ' , status)
+
+    # paiements des notes approuvées
+
+    if status == 'paid':
+
+        r = requests.get( urlDictionary + 'payment_types?active=1', headers=headers)
+
+        if r.status_code != 200:
+            print('erreur lors de la récupération des types de paiements.')
+            print(r.status_code)
+            print(r.text)
+
+        
         paymentTypeList = r.json()
 
-        fkTypePayment = random.choice(paymentTypeList)["id"]
+        try:
+          fkTypePayment = paymentTypeList[random.randint(0, len(paymentTypeList)-1)]['id']
+          if testing:
+            print('id type de paiement :', fkTypePayment)
+        except:
+            print('erreur lors du choix du types de paiement.')
+    
+    # Prévoir récupération du total de la note de frais.
 
         data_payment = {
-            "fk_typepayment": fkTypePayment,
-            "datepaid": datetime.date.today().strftime("%Y-%m-%d"),
-            "amount": 200,
-            "bank_account": 3,
+            "fk_typepayment":fkTypePayment,
+            "datepaid":dateValidate.strftime('%Y-%m-%d'),
+            "amounts":200,
+            "bank_account":3
         }
+        r = requests.post(urlReport + "/payments", headers = headers, json = data_payment)
 
-        r = requests.post(urlReport + "/payments", headers=headers, json=data_payment)
-        if testing and r.status_code == 200:
-            print("Paiement effectué")"""
+        if r.status_code != 200:
+            print('erreur lors du paiement de la note de frais.')
+            print(r.status_code)
+            print(r.text)
 
-    return expenseReportID
+# testing
 
-# TEST
 if __name__ == "__main__":
-    for i in range(10):
-        generate_expense_report(
-            dateCreate=fake.date_this_decade(before_today=True),
-            testing=True,
-        )
-    for i in range(3):
-        generate_expense_report(
-            dateCreate=fake.date_this_year(before_today=True),
-            testing=True,
-        )
+    for  i in range(5):
+        print(
+            generate_expense_report( 
+                dateCreate= fake.date_this_year(before_today=True), testing = True)
+    )
+
+    
