@@ -36,6 +36,15 @@ documents:
   new_order: 0
   new_proposal: 0
   new_ticket: 0
+  new_user: 0
+  new_user_group: 10
+  new_warehouse: 0
+  new_opportunity: 0
+  new_project: 0
+  new_supplier_bill: 0
+  new_supplier_order: 0
+  new_holiday: 0
+  new_expense_report: 10
 
 others:
   date_interval: 3
